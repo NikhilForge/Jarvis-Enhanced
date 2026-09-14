@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JARVIS-6 · Local Console</title>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b1016;--pan:#101821cc;--bd:#1e3a4a;--cy:#4de3ff;--am:#ffbf43;--mut:#8fa7b6}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#dceaf2;font-family:"Chakra Petch",system-ui;
+       background-image:linear-gradient(#4de3ff10 1px,transparent 1px),linear-gradient(90deg,#4de3ff10 1px,transparent 1px);
+       background-size:44px 44px}
+  header{display:flex;justify-content:space-between;align-items:end;padding:18px 24px;border-bottom:1px solid var(--bd)}
+  h1{margin:0;font-size:26px;text-shadow:0 0 14px #4de3ff66}
+  .sub{color:var(--mut);font-size:13px}
+  .grid{display:grid;grid-template-columns:300px 1fr 340px;gap:16px;padding:16px 24px}
+  .panel{background:var(--pan);border:1px solid var(--bd);border-radius:12px;padding:14px}
+  h2{font-family:"JetBrains Mono";font-size:11px;letter-spacing:.25em;text-transform:uppercase;color:var(--cy);margin:0 0 12px}
+  .bar{height:6px;background:#16232e;border-radius:99px;overflow:hidden;margin:5px 0}
+  .bar>i{display:block;height:100%;background:var(--cy)}
+  .row{display:flex;justify-content:space-between;font-size:12px}
+  .mono{font-family:"JetBrains Mono";font-size:11px;color:var(--mut)}
+  #orb{display:flex;justify-content:center}
+  #log{height:360px;overflow:auto;font-family:"JetBrains Mono";font-size:11px;line-height:1.7}
+  #log b{color:#4de3ffaa;font-weight:400}
+  .bubble{border:1px solid var(--bd);border-radius:8px;padding:10px;margin-top:10px;background:#0b131a80}
+  .state{font-family:"JetBrains Mono";letter-spacing:.3em;text-transform:uppercase;color:var(--cy);font-size:11px;text-align:center}
+  button{font-family:"JetBrains Mono";font-size:11px;text-transform:uppercase;letter-spacing:.15em;
+         border:1px solid var(--bd);background:#14212c;color:#dceaf2;padding:8px 14px;border-radius:8px;cursor:pointer}
+  #confirm{display:none;border-color:#ff5a6e;background:#ff5a6e18;margin-top:12px}
+  #log b{font-weight:400}
+  b.ch-wake{color:#4de3ff}b.ch-stt{color:#8fd6ff}b.ch-llm{color:#ffbf43}b.ch-tool{color:#ff9f6e}
+  b.ch-tts{color:#4dffc3}b.ch-mem{color:#c39bff}b.ch-skill{color:#7dffa8}b.ch-proactive{color:#ffd479}
+  b.ch-rag{color:#9fd0ff}b.ch-learn{color:#ff8fd0}b.ch-spk,b.ch-voice{color:#4de3ff}b.ch-sys{color:#8fa7b6}
+  .tag{display:inline-block;font-family:"JetBrains Mono";font-size:10px;border:1px solid var(--bd);
+       border-radius:6px;padding:2px 6px;margin:0 4px 4px 0;color:var(--mut)}
+  .lit{color:#4de3ff;border-color:#4de3ff66;box-shadow:0 0 10px #4de3ff33}
+</style>
+</head>
+<body>
+<header>
+  <div><div class="mono">local-first · Gemini cloud reasoning</div><h1>JARVIS-6 Orchestration Console</h1>
+  <div class="sub">Local voice stack · faster-whisper STT → Gemini tool brain → Kokoro TTS</div></div>
+  <div class="mono" id="conn">ws: connecting…</div>
+</header>
+<div class="grid">
+  <section class="panel">
+    <h2>vram budget</h2>
+    <div id="vram"></div>
+  </section>
+  <section class="panel">
+    <div id="orb"></div>
+    <div style="display:flex;justify-content:center;gap:8px;align-items:center;margin:8px 0"><button id="wakeBtn">WAKE JARVIS</button><span class="mono">or double-clap</span></div><div class="state" id="state">idle</div>
+    <div class="bubble"><div class="mono">operator</div><div id="user">—</div></div>
+    <div class="bubble"><div class="mono" style="color:var(--cy)">jarvis</div><div id="assistant">—</div></div>
+    <div class="panel" id="confirm">
+      <h2 style="color:#ff5a6e">human-in-the-loop</h2>
+      <div class="mono" id="pending"></div>
+      <div class="mono" style="margin-top:8px;color:#ff5a6e">auto-veto in <span id="countdown">25</span>s</div>
+      <div style="margin-top:10px"><button onclick="decide('yes')">approve</button>
+      <button onclick="decide('no')">veto</button></div>
+    </div>
+  </section>
+  <section>
+    <div class="panel"><h2>autonomy layer</h2>
+      <div class="row"><span>fast-path skill</span><span class="mono" id="v-skill">—</span></div>
+      <div class="row"><span>proactive queue</span><span class="mono" id="v-pro">idle</span></div>
+      <div class="row"><span>document rag</span><span class="mono" id="v-rag">—</span></div>
+      <div class="row"><span>speaker</span><span class="mono" id="v-spk">—</span></div>
+      <div class="row" style="margin-top:8px"><span>dpo pairs collected</span><span class="mono" id="v-learn">0 / 200</span></div>
+      <div class="bar"><i id="v-learnbar" style="width:0%;background:var(--am)"></i></div>
+      <div style="margin-top:10px" id="chips">
+        <span class="tag" id="t-wake">wake</span><span class="tag" id="t-stt">stt</span><span class="tag" id="t-skill">skill</span>
+        <span class="tag" id="t-rag">rag</span><span class="tag" id="t-llm">llm</span><span class="tag" id="t-tool">tool</span>
+        <span class="tag" id="t-tts">tts</span><span class="tag" id="t-browser">browser</span><span class="tag" id="t-vision">vision</span><span class="tag" id="t-learn">learn</span>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px"><h2>pipeline trace</h2><div id="log"></div></div>
+    <div class="panel" style="margin-top:16px">
+      <h2>audit trail</h2>
+      <div class="row"><span>records</span><span class="mono" id="audit-count">0</span></div>
+      <div id="audit-list" class="mono" style="max-height:220px;overflow:auto;margin-top:10px"></div>
+      <button id="audit-export" style="margin-top:12px">export audit log</button>
+    </div>
+  </section>
+</div>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.169.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+const budget=[["OS + WebGL HUD",0.86,1.0,"Windows 11 / Three.js"],
+["Speech-to-Text",1.31,1.5,"faster-whisper small int8_float16"],
+["Gemini brain",0.0,0.05,"Cloud API · local VRAM free"],
+["Speech synthesis",0.29,0.5,"Kokoro-82M"]];
+document.getElementById('vram').innerHTML=budget.map(([n,u,b,m])=>
+ `<div style="margin-bottom:12px"><div class="row"><span>${n}</span><span class="mono">${u}/${b} GB</span></div>
+  <div class="bar"><i style="width:${u/b*100}%"></i></div><div class="mono">${m}</div></div>`).join('');
+
+const host=document.getElementById('orb');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+const size=Math.min(420,window.innerWidth*0.4);renderer.setSize(size,size);host.appendChild(renderer.domElement);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,0.1,100);cam.position.z=3.4;
+const uni={uTime:{value:0},uLevel:{value:0},uA:{value:new THREE.Color('#0d3b4a')},uB:{value:new THREE.Color('#28c2d6')}};
+const mat=new THREE.ShaderMaterial({transparent:true,uniforms:uni,vertexShader:`
+uniform float uTime,uLevel;varying float vN;varying vec3 vNW;
+float h(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
+float n3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
+            mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z);}
+void main(){float a=0.16+uLevel*0.8;
+ vN=n3(normal*3.0+uTime*0.5)+n3(normal*7.0-uTime*1.1)*0.4-0.7;
+ vNW=normalize(normalMatrix*normal);
+ gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*vN*a,1.0);}`,
+fragmentShader:`uniform vec3 uA,uB;uniform float uLevel;varying float vN;varying vec3 vNW;
+void main(){float f=pow(1.0-abs(dot(normalize(vNW),vec3(0,0,1))),2.2);
+ vec3 c=mix(uA,uB,clamp(vN*0.7+0.5,0.0,1.0))+f*(0.9+uLevel);
+ gl_FragColor=vec4(c,0.92);}`});
+scene.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1,48),mat));
+const wire=new THREE.Mesh(new THREE.IcosahedronGeometry(1.35,3),
+  new THREE.MeshBasicMaterial({color:0x2ad4ff,wireframe:true,transparent:true,opacity:0.12}));scene.add(wire);
+const PAL={idle:['#0d3b4a','#28c2d6'],listening:['#0b4c5f','#4de3ff'],thinking:['#3a2d05','#ffbf43'],
+ speaking:['#0a4a3b','#4dffc3'],confirm:['#4a0d17','#ff5a6e']};
+let level=0.06,smooth=0,state='idle';const clock=new THREE.Clock();
+(function tick(){const t=clock.getElapsedTime();smooth+=(level-smooth)*0.14;
+ uni.uTime.value=t;uni.uLevel.value=smooth;const p=PAL[state]||PAL.idle;
+ uni.uA.value.lerp(new THREE.Color(p[0]),0.05);uni.uB.value.lerp(new THREE.Color(p[1]),0.05);
+ scene.rotation.y=t*0.25;wire.rotation.y=-t*0.12;renderer.render(scene,cam);requestAnimationFrame(tick);})();
+
+const log=document.getElementById('log');
+function line(ch,tx){const d=document.createElement('div');d.innerHTML=`<b class="ch-${ch}">[${ch}]</b> ${tx}`;
+ const chip=document.getElementById('t-'+ch);
+ if(chip){chip.classList.add('lit');setTimeout(()=>chip.classList.remove('lit'),900);}
+ log.appendChild(d);log.scrollTop=log.scrollHeight;if(log.children.length>200)log.firstChild.remove();}
+let countdownTimer=null;
+function startCountdown(){
+  clearInterval(countdownTimer);
+  let left=25;
+  document.getElementById('countdown').textContent=left;
+  countdownTimer=setInterval(()=>{
+    left--; document.getElementById('countdown').textContent=left;
+    if(left<=0){ clearInterval(countdownTimer); decide('no'); }
+  },1000);
+}
+window.decide=d=>{
+  clearInterval(countdownTimer);
+  return fetch('/api/confirm/'+d,{method:'POST'});
+};
+async function refreshAudit(){
+  try{
+    const r=await fetch('/api/audit'); const data=await r.json();
+    const records=data.records||[];
+    document.getElementById('audit-count').textContent=records.length;
+    const list=document.getElementById('audit-list');
+    list.innerHTML=records.slice(-40).reverse().map(x=>{
+      const ts=new Date((x.ts||0)*1000).toLocaleTimeString();
+      const ev=String(x.event||'event');
+      const tool=x.tool?` · ${x.tool}`:'';
+      return `<div style="padding:4px 0;border-bottom:1px solid #1e3a4a">${ts} · ${ev}${tool}</div>`;
+    }).join('')||'<div>no audit records yet</div>';
+  }catch(e){ document.getElementById('audit-list').textContent='audit unavailable'; }
+}
+document.getElementById('audit-export').onclick=()=>{ location.href='/api/audit/export'; };
+refreshAudit(); setInterval(refreshAudit,3000);
+document.getElementById('wakeBtn').onclick=async()=>{
+  try{await fetch('/api/wake',{method:'POST'});}catch(e){}
+};
+const ws=new WebSocket(`ws://${location.host}/ws`);
+ws.onopen=()=>document.getElementById('conn').textContent='ws: live';
+ws.onclose=()=>document.getElementById('conn').textContent='ws: closed';
+ws.onmessage=e=>{const m=JSON.parse(e.data);
+ if(m.channel==='level'){level=m.value;return;}
+ if(m.channel==='state'){state=m.text;document.getElementById('state').textContent=m.text;
+   document.getElementById('confirm').style.display=m.text==='confirm'?'block':'none'; if(m.text==='confirm') startCountdown(); else clearInterval(countdownTimer); refreshAudit(); return;}
+ if(m.channel==='user'){document.getElementById('user').textContent=m.text;}
+ if(m.channel==='tts'){document.getElementById('assistant').textContent=m.text;}
+ if(m.channel==='browser'){line('browser',m.text);}
+ if(m.channel==='vision'){line('vision',m.text);}
+ if(m.channel==='skill'){document.getElementById('v-skill').textContent=m.text;}
+ if(m.channel==='proactive'){document.getElementById('v-pro').textContent=m.text;}
+ if(m.channel==='rag'){document.getElementById('v-rag').textContent=m.text;}
+ if(m.channel==='spk'||m.channel==='voice'){document.getElementById('v-spk').textContent=m.text;}
+ if(m.channel==='learn'){const n=m.value??0;document.getElementById('v-learn').textContent=`${n} / 200`;
+   document.getElementById('v-learnbar').style.width=Math.min(100,n/2)+'%';}
+ if(m.pending)document.getElementById('pending').textContent=JSON.stringify(m.pending); refreshAudit();
+ line(m.channel,m.text);};
+</script>
+</body></html>

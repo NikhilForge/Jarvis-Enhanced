@@ -1,0 +1,38 @@
+# --- core runtime ---
+setuptools<81
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pyyaml==6.0.2
+numpy>=2.0.2,<3
+sounddevice==0.5.1
+webrtcvad==2.0.10
+# --- speech ---
+faster-whisper==1.1.1
+openwakeword==0.6.0
+kokoro-onnx==0.4.9
+soundfile==0.12.1
+# --- cognition / memory ---
+httpx==0.28.1
+chromadb==0.5.23
+# --- action layer ---
+pyautogui==0.9.54
+psutil==6.1.1
+duckduckgo-search==7.2.1
+# --- speaker verification (CPU) ---
+resemblyzer==0.1.4
+# --- CPU VAD ---
+torch==2.5.1
+torchaudio==2.5.1
+# --- metrics / OS control ---
+nvidia-ml-py==12.560.30
+pycaw==20240210; sys_platform == "win32"
+comtypes==1.4.8; sys_platform == "win32"
+requests==2.32.3
+playwright>=1.55,<2
+Pillow>=10.0,<12
+# --- training (optional: pip install -r training/requirements-train.txt) ---
+sentence-transformers>=3.0.0   # CPU document embeddings for local RAG
+
+# --- Gemini cloud brain (API key only; voice/audio remain local) ---
+python-dotenv==1.0.1

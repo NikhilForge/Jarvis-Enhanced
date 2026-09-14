@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+data/chroma/
+data/*.sqlite3
+data/voiceprint.json
+data/audit.jsonl
+data/metrics.jsonl
+data/live_sft.jsonl
+data/live_dpo.jsonl
+models/*.onnx
+models/*.bin

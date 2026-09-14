@@ -1,0 +1,157 @@
+# JARVIS-6 — local voice assistant for RTX 3050 6GB / Ryzen 5 7235HS
+audio:
+  input_device: 1        # null = system default
+  sample_rate: 16000
+  frame_ms: 20
+  vad_aggressiveness: 2       # webrtc fallback only
+  vad_threshold: 0.5          # Silero VAD speech probability (CPU / ONNX)
+  silence_ms_to_endpoint: 550
+
+wakeword:
+  enabled: true
+  always_on: true             # armed 24/7, including while Jarvis is speaking (barge-in)
+  model: "hey_jarvis"         # built-in openWakeWord INT8 CNN — fires on "jarvis" / "hey jarvis"
+  custom_model_path: null     # e.g. models/jarvis.onnx after training/train_wakeword.py
+  threshold: 0.5
+  vad_gate: 0.3               # Silero pre-gate: kills false positives from TV / typing
+  follow_up_seconds: 8        # keep listening this long after a reply — no wake word needed
+  manual_button: true
+  clap_to_wake: true
+  clap_min_gap_ms: 120
+  clap_max_gap_ms: 700
+  clap_cooldown_ms: 1200
+
+speaker_id:
+  enabled: true
+  owner_name: "Kunal"
+  voiceprint_path: data/voiceprint.json
+  threshold: 0.75             # general recognition ("that's you")
+  privileged_threshold: 0.82  # required for shutdown / personal files / shell
+  enroll_clips: 8
+
+stt:
+  engine: faster-whisper
+  model: small              # ~1.5 GB VRAM with int8_float16
+  device: cpu
+  compute_type: int8
+  language: null                 # null = auto-detect English / Hindi / Hinglish
+  first_partial_routing: true   # dispatch partials to the LLM early
+
+llm:
+  backend: gemini           # gemini | ollama
+  api_key_env: GEMINI_API_KEY
+  model: gemini-2.5-flash   # stable Gemini model; change to another API-supported model if desired
+  temperature: 0.4
+  max_output_tokens: 1024
+  timeout_seconds: 90
+  # Optional local fallback:
+  # base_url: http://127.0.0.1:11434
+  # num_ctx: 4096
+  # num_gpu_layers: 999
+
+tts:
+  engine: kokoro            # Kokoro-82M ONNX, <0.5 GB VRAM
+  voice: af_heart
+  speed: 1.05
+  model_path: models/kokoro-v1.0.onnx
+  voices_path: models/voices-v1.0.bin
+  sentence_streaming: true
+
+memory:
+  db_path: data/chroma
+  core_blocks_path: data/core_memory.json
+  recall_path: data/recall.sqlite3
+  archival_top_k: 4
+
+tools:
+  desktop_automation: true
+  filesystem: true
+  web_search: true
+  home_assistant:
+    enabled: false
+    base_url: http://homeassistant.local:8123
+    token_env: HA_TOKEN
+  snapcast:
+    enabled: false
+    host: 127.0.0.1
+  browser:
+    enabled: true
+    headless: false
+    channel: null
+    timeout_ms: 15000
+  vision:
+    enabled: true
+    model: gemini-2.5-flash
+    screenshot_path: data/screen.png
+
+safety:
+  # any tool listed here pauses and waits for a spoken "yes"
+  # owner_only tools are refused outright unless the live voice matches the voiceprint
+  owner_only:
+    - system.power
+    - system.kill
+    - files.move
+    - files.find
+    - files.open
+    - files.recent
+    - fs.list
+    - fs.read
+    - fs.write
+    - desktop.run_command
+    - desktop.type_text
+    - desktop.hotkey
+    - desktop.click
+    - desktop.screenshot
+    - memory.core_replace
+    - memory.core_append
+    - memory.archival_search
+    - memory.recall_search
+  confirm_before:
+    - system.power
+    - system.kill
+    - fs.delete
+    - desktop.run_command
+    - homeassistant.call_service
+
+compute:
+  # Gemini reasoning is cloud-side; local GPU is reserved for speech recognition.
+  cpu: [silero_vad, wakeword_cnn, kokoro_tts, speaker_encoder, browser]
+  gpu: [faster_whisper_int8]
+  reserved_vram_gb: 1.5
+
+audit:
+  enabled: true
+  path: data/audit.jsonl
+  max_api_records: 500
+
+metrics:
+  log_path: data/metrics.jsonl
+  vram_ceiling_gb: 6.0
+  sample_seconds: 5
+
+rag:
+  enabled: true
+  index_on_start: false        # set true to scan on every launch
+  embed_model: all-MiniLM-L6-v2   # CPU, ~90 MB RAM — keeps VRAM free
+  top_k: 5
+  max_file_mb: 2
+  roots:
+    - "%USERPROFILE%/Documents"
+    - "%USERPROFILE%/Desktop"
+
+proactive:
+  enabled: true
+  jobs_path: data/jobs.json
+  routines:                    # spoken automatically, no wake word needed
+    "08:15": "Morning. Say 'jarvis, brief me' whenever you're ready for the day's rundown."
+    "23:30": "It's half eleven — want me to shut the machine down?"
+
+learning:
+  enabled: true
+  sft_path: data/live_sft.jsonl
+  dpo_path: data/live_dpo.jsonl
+  min_pairs_before_retrain: 200
+
+server:
+  host: 127.0.0.1
+  port: 8765
