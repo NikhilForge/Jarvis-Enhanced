@@ -22,7 +22,6 @@ def main():
         import openwakeword
     except Exception:
         sys.exit("pip install openwakeword[training] piper-sample-generator")
-
     os.makedirs("wakeword_work", exist_ok=True)
     print(f"1/4 synthesising {a.positives} TTS variants of “{a.phrase}” "
           "(speaker, pitch ±20%, tempo 0.8-1.25x, formant jitter)")

@@ -11,5 +11,19 @@ data/audit.jsonl
 data/metrics.jsonl
 data/live_sft.jsonl
 data/live_dpo.jsonl
+data/dpo_pairs.jsonl
+data/browser-profile/
+data/screen.png
 models/*.onnx
 models/*.bin
+# Personal and generated data
+data/core_memory.json
+data/test_img.png
+# Personal data
+data/core_memory.json
+data/test_img.png
+
+data/core_memory.json
+data/test_img.png
+data/core_memory.json
+data/test_img.png

@@ -1,15 +1,22 @@
 @echo off
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+cd /d "%~dp0"
 REM JARVIS-6 launcher for Windows 11
 if not exist .venv (
   python -m venv .venv
-  call .venv\Scripts\activate
-  pip install --upgrade pip
+)
+call .venv\Scripts\activate
+python -c "import openwakeword" >nul 2>&1
+if errorlevel 1 (
+  echo Installing JARVIS dependencies into .venv...
+  python -m pip install --upgrade pip
   pip install -r requirements.txt
+  pip install --no-deps resemblyzer
   echo Installing Chromium for browser automation...
   python -m playwright install chromium
-) else (
-  call .venv\Scripts\activate
 )
+
 REM openWakeWord does not always bundle pretrained model files with the pip package.
 REM Download the Hey Jarvis ONNX model once before starting the assistant.
 python -c "from openwakeword import utils; utils.download_models(['hey_jarvis'])"
@@ -29,7 +36,7 @@ if not exist data\voiceprint.json (
   python scripts\enroll_voice.py
 )
 if not exist .env (
-  copy .env.example .env >nul
+  echo GEMINI_API_KEY= > .env
   echo.
   echo IMPORTANT: edit .env and paste your Gemini API key into GEMINI_API_KEY.
   echo Then run this file again.
@@ -42,5 +49,8 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-start "" http://127.0.0.1:8765
+REM Free port 8765 if an old instance is stuck
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8765 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+
+start "" http://localhost:8765
 python main.py %*

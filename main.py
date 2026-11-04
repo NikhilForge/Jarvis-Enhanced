@@ -4,6 +4,10 @@
   python main.py --hud      HUD only, synthetic events (no models required)
 """
 import argparse, asyncio, random, sys, threading, time, yaml
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -51,9 +55,7 @@ def full():
     from core.learning import Learning
     from core.audit import Audit
     from core.proactive import Proactive
-    import tools.assistant  # noqa: F401
-    import tools.browser    # noqa: F401
-    import tools.vision     # noqa: F401
+    import tools  # registers all assistant, browser, media, accessibility, vision, system tools
 
     cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     print("· loading local speech models + Gemini agent tools…")
@@ -65,6 +67,11 @@ def full():
     orch = Orchestrator(cfg, AudioInput(cfg), WakeWord(cfg), STT(cfg), LLM(cfg), tts,
                         Memory(cfg), SpeakerID(cfg), Metrics(cfg),
                         rag=rag, learning=learning, proactive=proactive, audit=audit)
+    proactive.run_tool = lambda name, args: tools.registry.call(name, args, {
+        "config": cfg, "memory": orch.memory, "speaker": orch.speaker,
+        "metrics": orch.metrics, "rag": rag, "learning": learning,
+        "proactive": proactive, "tts": tts, "llm": orch.llm, "orchestrator": orch
+    })
     if cfg.get("rag", {}).get("index_on_start"):
         threading.Thread(target=rag.index, daemon=True).start()
     for hhmm, line in (cfg.get("proactive", {}).get("routines") or {}).items():

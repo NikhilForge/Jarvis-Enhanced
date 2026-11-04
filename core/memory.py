@@ -2,11 +2,6 @@
 import json, os, sqlite3, time
 from core.bus import BUS
 
-DEFAULT_CORE = {
-    "persona": "I am JARVIS-6, a concise, local-only assistant running on the operator's laptop.",
-    "user": "The operator is Kunal. Preferences unknown so far.",
-}
-
 
 class Memory:
     def __init__(self, cfg: dict):
@@ -15,7 +10,12 @@ class Memory:
         self.top_k = m["archival_top_k"]
         os.makedirs(os.path.dirname(self.core_path) or ".", exist_ok=True)
         os.makedirs(m["db_path"], exist_ok=True)
-        self.core = json.load(open(self.core_path)) if os.path.exists(self.core_path) else dict(DEFAULT_CORE)
+        owner = cfg.get("speaker_id", {}).get("owner_name", "the operator")
+        default_core = {
+            "persona": "I am JARVIS-6, a concise, local-only assistant running on the operator's laptop.",
+            "user": f"The operator is {owner}. Preferences unknown so far.",
+        }
+        self.core = json.load(open(self.core_path)) if os.path.exists(self.core_path) else default_core
         self.db = sqlite3.connect(m["recall_path"], check_same_thread=False)
         self.db.execute("CREATE TABLE IF NOT EXISTS recall(ts REAL, role TEXT, text TEXT)")
         self.db.commit()

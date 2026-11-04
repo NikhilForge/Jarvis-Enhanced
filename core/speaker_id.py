@@ -19,8 +19,10 @@ class SpeakerID:
         self.owner = s.get("owner_name", "operator")
         self.encoder = None
         self.reference = None
-        self.last_score = 0.0
+        self.last_score = 1.0
         if not self.enabled:
+            BUS.emit("spk", "anyone (open access)")
+            BUS.emit("sys", "speaker ID disabled: open access mode (anyone can use JARVIS)")
             return
         try:
             from resemblyzer import VoiceEncoder
@@ -57,8 +59,13 @@ class SpeakerID:
 
     # ---- verification ---------------------------------------------------
     def score(self, audio: np.ndarray) -> float:
-        if not self.enabled or self.reference is None:
+        if audio is None or len(audio) == 0:
+            return 0.0
+        if not self.enabled:
+            self.last_score = 1.0
             return 1.0
+        if self.reference is None:
+            return 0.0
         try:
             v = self.embed(audio)
             v = v / (np.linalg.norm(v) + 1e-9)
@@ -71,7 +78,9 @@ class SpeakerID:
         return self.last_score
 
     def is_owner(self, privileged: bool = False) -> bool:
-        if not self.enabled or self.reference is None:
+        if not self.enabled:
             return True
+        if self.reference is None:
+            return False
         need = self.privileged_threshold if privileged else self.threshold
         return self.last_score >= need

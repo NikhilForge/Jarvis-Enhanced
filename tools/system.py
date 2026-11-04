@@ -126,7 +126,7 @@ def open_path(path, ctx=None):
       {"src": {"type": "string"}, "dst": {"type": "string"}}, destructive=True, privileged=True)
 def move(src, dst, ctx=None):
     shutil.move(os.path.expanduser(src), os.path.expanduser(dst))
-    return f"moved {src} → {dst}"
+    return f"moved {src} -> {dst}"
 
 
 @tool("files.recent", "List recently modified files in a folder. Owner only.",
@@ -134,6 +134,14 @@ def move(src, dst, ctx=None):
       privileged=True)
 def recent(folder=None, count=10, ctx=None):
     folder = os.path.expanduser(folder or "~/Downloads")
-    items = [(os.path.getmtime(os.path.join(folder, f)), f) for f in os.listdir(folder)]
+    if not os.path.exists(folder) or not os.path.isdir(folder):
+        return f"folder not found: {folder}"
+    items = []
+    for f in os.listdir(folder):
+        p = os.path.join(folder, f)
+        try:
+            items.append((os.path.getmtime(p), f))
+        except OSError:
+            continue
     items.sort(reverse=True)
     return "\n".join(f for _, f in items[:count])

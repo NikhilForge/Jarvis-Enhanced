@@ -12,7 +12,7 @@ import threading, time
 from core.bus import BUS
 from core.skills import try_fast_path
 from tools import registry
-import tools.system  # noqa: F401  (registers owner-only OS tools)
+import tools  # noqa: F401  (registers all tools)
 
 SYSTEM = """You are JARVIS, {owner}'s personal assistant. The JARVIS application runs locally on their laptop. The configured Gemini brain is a cloud API, so only the context needed for reasoning is sent to Google.
 
@@ -28,6 +28,9 @@ Capability rules:
 - For multi-step requests, plan internally and execute tools sequentially, checking each result before the next step.
 - Use vision.analyze_screen when the answer depends on what is visible on the desktop.
 - Use browser.* tools for real website interaction and web.search for research-only questions.
+- Use youtube.* tools for searching, playing, and controlling YouTube video playback.
+- Use media.* tools (play_pause, next, previous, stop) for controlling system audio and music players.
+- Use accessibility.* tools for screen magnifier, narrator, high contrast, and on-screen keyboard.
 - Never bypass CAPTCHA, MFA, paywalls, security prompts or access controls.
 - Never claim an action succeeded unless a tool result confirms it.
 
@@ -61,6 +64,7 @@ class Orchestrator:
         self._stop_speaking = threading.Event()
         self.follow_up_until = 0.0     # short window where no wake word is needed
         self._manual_wake = threading.Event()
+        self._stt_ms = 0.0
 
     def wake_now(self):
         """Wake the assistant from the local HUD button."""
@@ -115,6 +119,12 @@ class Orchestrator:
             self.confirm(False)
 
     # ---- one turn -----------------------------------------------------
+    def handle_text(self, text: str):
+        if self.speaker:
+            self.speaker.last_score = 1.0
+        BUS.emit("user", text)
+        return self.handle(text, time.perf_counter())
+
     def handle(self, text: str, t_wake: float):
         self.memory.log("user", text)
         if self.audit:
@@ -132,15 +142,20 @@ class Orchestrator:
                 self.tts.say(fast)
                 self.memory.log("assistant", fast)
             self.set_state("idle")
+            # Clear residual speaker playback from queue
+            while not self.audio.q.empty():
+                try: self.audio.q.get_nowait()
+                except Exception: break
             self.follow_up_until = time.time() + self.cfg["wakeword"].get("follow_up_seconds", 8)
             return fast
 
         self.history = self.history[-8:] + [{"role": "user", "content": text}]
-        score = self.speaker.last_score if self.speaker else 1.0
-        verified = self.speaker.is_owner() if self.speaker else True
+        score = self.speaker.last_score if (self.speaker and self.speaker.enabled) else 1.0
+        verified = self.speaker.is_owner() if (self.speaker and self.speaker.enabled) else True
+        owner_name = (self.speaker.owner if (self.speaker and self.speaker.enabled) else "the operator")
         sysmsg = SYSTEM.format(
-            owner=(self.speaker.owner if self.speaker else "the operator"),
-            score=score, threshold=(self.speaker.threshold if self.speaker else 0.0),
+            owner=owner_name,
+            score=score, threshold=(self.speaker.threshold if (self.speaker and self.speaker.enabled) else 0.0),
             verified=verified, core=self.memory.block_text())
         # 2. ground the answer in the operator's own documents when relevant
         if self.rag and self.rag.available():
@@ -194,6 +209,10 @@ class Orchestrator:
                 if self.learning:
                     self.learning.record_turn(text, spoken)
                 self.set_state("idle")
+                # Clear residual speaker playback from queue
+                while not self.audio.q.empty():
+                    try: self.audio.q.get_nowait()
+                    except Exception: break
                 self.follow_up_until = time.time() + self.cfg["wakeword"].get("follow_up_seconds", 8)
                 return spoken
 
@@ -217,7 +236,7 @@ class Orchestrator:
                                                     "llm": self.llm, "orchestrator": self})
                 BUS.emit("tool", f"{name} → {str(result)[:120]}")
                 if self.audit: self.audit.record("tool_executed", tool=name, result=str(result)[:2000])
-            msgs.append({"role": "assistant", "content": "",
+            msgs.append({"role": "assistant", "content": "", "raw_parts": tool_call.get("raw_parts"),
                          "tool_calls": [{"function": {"name": name, "arguments": args}}]})
             msgs.append({"role": "tool", "content": str(result)[:4000]})
         self.set_state("idle")
@@ -243,12 +262,16 @@ class Orchestrator:
                 self.tts.stop()
             if self.state not in ("idle", "speaking"):
                 continue
-            follow_up = time.time() < self.follow_up_until and self.audio.level(frame) > 0.12
+            if self.state == "speaking":
+                continue
+
+            follow_up = (self.state == "idle" and time.time() < self.follow_up_until and self.audio.vad.is_speech(frame))
             if not hot and not follow_up:
                 continue
 
             t_wake = time.perf_counter()
             self.set_state("listening")
+            self.audio.vad.reset()
             audio = self.audio.record_utterance()
             if self.speaker:
                 self.speaker.score(audio)
@@ -257,6 +280,32 @@ class Orchestrator:
             self._stt_ms = (time.perf_counter() - t0) * 1000
             if not text:
                 self.set_state("idle"); continue
+
+            import re
+            clean_text = re.sub(r"^(hey\s+)?jarvis[,.!?\s]*", "", text, flags=re.I).strip()
+            if not clean_text:
+                BUS.emit("user", text)
+                self.set_state("speaking")
+                self.tts.say("Yes?")
+                time.sleep(0.12)
+                while not self.audio.q.empty():
+                    try: self.audio.q.get_nowait()
+                    except Exception: break
+                self.set_state("listening")
+                BUS.emit("sys", "listening for command...")
+                self.audio.vad.reset()
+                audio2 = self.audio.record_utterance(max_seconds=8.5)
+                t0 = time.perf_counter()
+                text2 = self.stt.transcribe(audio2, on_partial=self.llm.prefetch)
+                self._stt_ms = (time.perf_counter() - t0) * 1000
+                if not text2:
+                    BUS.emit("sys", "no follow-up command heard")
+                    self.set_state("idle")
+                    continue
+                clean2 = re.sub(r"^(hey\s+)?jarvis[,.!?\s]*", "", text2, flags=re.I).strip()
+                clean_text = clean2 if clean2 else text2
+
+            text = clean_text
             BUS.emit("user", text)
             try:
                 self.handle(text, t_wake)

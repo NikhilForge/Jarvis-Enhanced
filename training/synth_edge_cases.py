@@ -40,7 +40,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=1000)
     ap.add_argument("--batch", type=int, default=25)
-    ap.add_argument("--model", default="google/gemini-2.5-flash")
+    ap.add_argument("--model", default="google/gemini-3.8-flash")
     ap.add_argument("--base-url", default="https://ai.gateway.lovable.dev/v1")
     a = ap.parse_args()
     key = os.environ.get("LOVABLE_API_KEY") or os.environ.get("OPENAI_API_KEY")

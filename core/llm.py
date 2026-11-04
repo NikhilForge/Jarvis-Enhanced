@@ -91,6 +91,9 @@ class LLM:
             if role == "user":
                 contents.append({"role": "user", "parts": [{"text": str(m.get("content", ""))}]})
             elif role == "assistant":
+                if m.get("raw_parts"):
+                    contents.append({"role": "model", "parts": m["raw_parts"]})
+                    continue
                 parts = []
                 if m.get("content"):
                     parts.append({"text": m["content"]})
@@ -132,25 +135,43 @@ class LLM:
             body["tools"] = gt
             body["toolConfig"] = {"functionCallingConfig": {"mode": "AUTO"}}
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.c['model']}:generateContent"
-        r = self.client.post(url, headers={
-            "x-goog-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }, json=body)
-        if r.status_code >= 400:
-            raise RuntimeError(f"Gemini API {r.status_code}: {r.text[:1000]}")
-        data = r.json()
-        candidates = data.get("candidates") or []
-        if not candidates:
-            raise RuntimeError(f"Gemini returned no candidates: {json.dumps(data)[:1000]}")
-        parts = candidates[0].get("content", {}).get("parts", [])
-        for part in parts:
-            fc = part.get("functionCall")
-            if fc:
-                BUS.emit("tool", f"Gemini tool_call {fc.get('name')}({json.dumps(fc.get('args', {}))})")
-                return ("tool", {"name": fc.get("name"), "args": fc.get("args") or {}})
-        text = "".join(p.get("text", "") for p in parts if p.get("text"))
-        return ("text", text.strip())
+        models_to_try = [self.c['model']]
+        fallbacks = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3-flash-preview"]
+        for fb in fallbacks:
+            if fb not in models_to_try:
+                models_to_try.append(fb)
+
+        last_error = None
+        for current_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
+            r = self.client.post(url, headers={
+                "x-goog-api-key": self.api_key,
+                "Content-Type": "application/json",
+            }, json=body)
+            if r.status_code == 200:
+                if current_model != self.c['model']:
+                    BUS.emit("llm", f"switched model: {self.c['model']} → {current_model} (quota fallback)")
+                    self.c['model'] = current_model
+                data = r.json()
+                candidates = data.get("candidates") or []
+                if not candidates:
+                    raise RuntimeError(f"Gemini returned no candidates: {json.dumps(data)[:1000]}")
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    fc = part.get("functionCall")
+                    if fc:
+                        BUS.emit("tool", f"Gemini tool_call {fc.get('name')}({json.dumps(fc.get('args', {}))})")
+                        return ("tool", {"name": fc.get("name"), "args": fc.get("args") or {}, "raw_parts": parts})
+                text = "".join(p.get("text", "") for p in parts if p.get("text"))
+                return ("text", text.strip())
+            elif r.status_code in (429, 404):
+                BUS.emit("llm", f"Gemini {current_model} {r.status_code} ({'quota exceeded' if r.status_code==429 else 'not found'}) · trying fallback…")
+                last_error = f"Gemini API {r.status_code}: {r.text[:500]}"
+                continue
+            else:
+                raise RuntimeError(f"Gemini API {r.status_code}: {r.text[:1000]}")
+
+        raise RuntimeError(last_error or "All Gemini models exhausted")
 
     def chat_stream(self, messages, tools=None):
         """Compatibility generator used by the existing orchestrator."""
@@ -178,23 +199,39 @@ class LLM:
         body = {
             "contents": [{"role": "user", "parts": [
                 {"text": prompt},
-                {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}},
+                {"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode("ascii")}},
             ]}],
             "generationConfig": {
                 "temperature": 0.2,
                 "maxOutputTokens": min(2048, self.c.get("max_output_tokens", 1024) * 2),
             },
         }
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.c['model']}:generateContent"
-        r = self.client.post(url, headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"}, json=body)
-        if r.status_code >= 400:
-            raise RuntimeError(f"Gemini vision API {r.status_code}: {r.text[:1000]}")
-        data = r.json()
-        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts if p.get("text"))
-        return text.strip() or "Gemini returned no visual description."
+        models_to_try = [self.c['model']]
+        for fb in ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]:
+            if fb not in models_to_try:
+                models_to_try.append(fb)
+        last_error = None
+        for current_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
+            r = self.client.post(url, headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"}, json=body)
+            if r.status_code == 200:
+                if current_model != self.c['model']:
+                    self.c['model'] = current_model
+                data = r.json()
+                parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+                text = "".join(p.get("text", "") for p in parts if p.get("text"))
+                return text.strip() or "Gemini returned no visual description."
+            elif r.status_code in (429, 404):
+                last_error = f"Gemini vision API {r.status_code}: {r.text[:500]}"
+                continue
+            else:
+                raise RuntimeError(f"Gemini vision API {r.status_code}: {r.text[:1000]}")
+        raise RuntimeError(last_error or "All Gemini vision models exhausted")
 
     def prefetch(self, partial: str):
         # Gemini calls are intentionally not made on every partial transcript:
         # doing so adds latency/cost and can race the final request.
         BUS.emit("llm", f'partial received → "{partial}"')
+
+
+        

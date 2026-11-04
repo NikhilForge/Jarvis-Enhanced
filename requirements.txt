@@ -6,7 +6,7 @@ pydantic==2.10.4
 pyyaml==6.0.2
 numpy>=2.0.2,<3
 sounddevice==0.5.1
-webrtcvad==2.0.10
+webrtcvad-wheels
 # --- speech ---
 faster-whisper==1.1.1
 openwakeword==0.6.0
@@ -14,16 +14,19 @@ kokoro-onnx==0.4.9
 soundfile==0.12.1
 # --- cognition / memory ---
 httpx==0.28.1
-chromadb==0.5.23
+# chromadb requires Microsoft C++ Build Tools on Python 3.12 (optional archival vector store)
+# chromadb==0.5.23
 # --- action layer ---
 pyautogui==0.9.54
 psutil==6.1.1
 duckduckgo-search==7.2.1
 # --- speaker verification (CPU) ---
-resemblyzer==0.1.4
+# resemblyzer is installed via --no-deps in run.bat to avoid uncompiled webrtcvad on Python 3.12
+librosa
+scipy
 # --- CPU VAD ---
-torch==2.5.1
-torchaudio==2.5.1
+torch>=2.5.0
+torchaudio>=2.5.0
 # --- metrics / OS control ---
 nvidia-ml-py==12.560.30
 pycaw==20240210; sys_platform == "win32"

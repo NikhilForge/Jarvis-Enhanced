@@ -24,9 +24,14 @@ PHRASES = [
 
 def record(seconds=4, rate=16000):
     import sounddevice as sd
-    a = sd.rec(int(seconds * rate), samplerate=rate, channels=1, dtype="float32")
-    sd.wait()
-    return a.flatten()
+    try:
+        a = sd.rec(int(seconds * rate), samplerate=rate, channels=1, dtype="float32")
+        sd.wait()
+        return a.flatten()
+    except Exception:
+        a = sd.rec(int(seconds * rate), samplerate=rate, channels=2, dtype="float32")
+        sd.wait()
+        return a.mean(axis=1).flatten()
 
 
 def main():
@@ -56,7 +61,7 @@ def main():
 
     ref = spk.enroll(clips, cfg["speaker_id"]["owner_name"])
     sims = [float(np.dot(spk.embed(c) / np.linalg.norm(spk.embed(c)), ref)) for c in clips]
-    print(f"\nvoiceprint saved → {spk.print_path}")
+    print(f"\nvoiceprint saved -> {spk.print_path}")
     print(f"self-similarity min {min(sims):.2f} / mean {sum(sims)/len(sims):.2f}")
     print("Set speaker_id.privileged_threshold just under the min if owner commands get refused.")
 

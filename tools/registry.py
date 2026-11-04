@@ -32,14 +32,35 @@ def is_privileged(name, cfg):
     return name in cfg["safety"].get("owner_only", []) or _REG.get(name, {}).get("privileged", False)
 
 
+def _normalize_ctx(ctx):
+    if isinstance(ctx, dict):
+        return ctx
+    if ctx is None:
+        return {}
+    return {
+        "config": getattr(ctx, "cfg", {}),
+        "speaker": getattr(ctx, "speaker", None),
+        "metrics": getattr(ctx, "metrics", None),
+        "memory": getattr(ctx, "memory", None),
+        "rag": getattr(ctx, "rag", None),
+        "learning": getattr(ctx, "learning", None),
+        "proactive": getattr(ctx, "proactive", None),
+        "tts": getattr(ctx, "tts", None),
+        "llm": getattr(ctx, "llm", None),
+        "orchestrator": ctx,
+    }
+
+
 def call(name, args, ctx):
     t = _REG.get(name)
     if not t:
         return f"unknown tool {name}"
+    ctx = _normalize_ctx(ctx)
     # --- voice-identity gate: owner-only tools require a verified voiceprint match ---
-    restricted = t.get("privileged") or name in (ctx or {}).get("config", {}).get("safety", {}).get("owner_only", [])
+    cfg = ctx.get("config", {})
+    spk = ctx.get("speaker")
+    restricted = t.get("privileged") or name in (cfg or {}).get("safety", {}).get("owner_only", [])
     if restricted:
-        spk = (ctx or {}).get("speaker")
         if spk is not None and not spk.is_owner(privileged=True):
             BUS.emit("voice", f"REFUSED {name}: speaker match {spk.last_score:.2f} below "
                               f"{spk.privileged_threshold}")
@@ -59,10 +80,316 @@ def _gui():
     return pyautogui
 
 
+APP_ALIASES = {
+    # Text editors & IDEs
+    "notepad": "notepad.exe",
+    "notes": "notepad.exe",
+    "code": "code.exe",
+    "vscode": "code.exe",
+    "vs code": "code.exe",
+    "visual studio code": "code.exe",
+
+    # Utilities & System
+    "calculator": "calc.exe",
+    "calc": "calc.exe",
+    "paint": "mspaint.exe",
+    "mspaint": "mspaint.exe",
+    "terminal": "wt.exe",
+    "cmd": "cmd.exe",
+    "command prompt": "cmd.exe",
+    "powershell": "powershell.exe",
+    "explorer": "explorer.exe",
+    "file explorer": "explorer.exe",
+    "files": "explorer.exe",
+    "task manager": "taskmgr.exe",
+    "taskmgr": "taskmgr.exe",
+    "settings": "ms-settings:",
+    "camera": "microsoft.windows.camera:",
+    "clock": "ms-clock:",
+    "alarms": "ms-clock:",
+    "snipping tool": "ms-screenclip:",
+    "snip": "ms-screenclip:",
+    "store": "ms-windows-store:",
+    "weather": "bingweather:",
+
+    # Media & Social
+    "spotify": "spotify:",
+    "whatsapp": "5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App",
+    "telegram": r"D:\Telegram Desktop\Telegram.exe",
+    "discord": os.path.expandvars(r"%LOCALAPPDATA%\Discord\Update.exe --processStart Discord.exe"),
+    "vlc": r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+    "vlc media player": r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+
+    # Browsers
+    "brave": "brave.exe",
+    "chrome": "chrome.exe",
+    "google chrome": "chrome.exe",
+    "edge": "msedge.exe",
+    "microsoft edge": "msedge.exe",
+
+    # Office
+    "word": "winword.exe",
+    "ms word": "winword.exe",
+    "winword": "winword.exe",
+    "excel": "excel.exe",
+    "ms excel": "excel.exe",
+    "powerpoint": "powerpnt.exe",
+    "ppt": "powerpnt.exe",
+    "outlook": "outlook.exe",
+}
+
+
+def _launch_aumid(aumid: str) -> bool:
+    """Launch Windows Store / UWP application via IApplicationActivationManager COM."""
+    try:
+        import comtypes
+        from comtypes import GUID, IUnknown, COMMETHOD, HRESULT
+        from ctypes import POINTER, c_ulong, c_wchar_p, c_uint
+
+        CLSID_ApplicationActivationManager = GUID('{45BA127D-10A8-46EA-8AB7-56EA9078943C}')
+        IID_IApplicationActivationManager = GUID('{2E941141-7F97-4756-BA1D-9DECDE894A3D}')
+
+        class IApplicationActivationManager(IUnknown):
+            _case_insensitive_ = True
+            _iid_ = IID_IApplicationActivationManager
+            _methods_ = [
+                COMMETHOD([], HRESULT, 'ActivateApplication',
+                          (['in'], c_wchar_p, 'appUserModelId'),
+                          (['in'], c_wchar_p, 'arguments'),
+                          (['in'], c_ulong, 'options'),
+                          (['out', 'retval'], POINTER(c_uint), 'processId')),
+            ]
+
+        comtypes.CoInitialize()
+        mgr = comtypes.CoCreateInstance(
+            CLSID_ApplicationActivationManager,
+            IApplicationActivationManager,
+            comtypes.CLSCTX_LOCAL_SERVER
+        )
+        pid = mgr.ActivateApplication(aumid, '', 0)
+        comtypes.CoUninitialize()
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_app_target(clean: str) -> str:
+    """Resolve an application name to an executable path, protocol, or AUMID."""
+    if clean in APP_ALIASES:
+        return APP_ALIASES[clean]
+
+    import winreg, shutil
+    # 1. Check App Paths in registry
+    for root_key in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root_key, f"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{clean}.exe") as k:
+                val, _ = winreg.QueryValueEx(k, "")
+                if val:
+                    return val
+        except Exception:
+            pass
+
+    # 2. Check PATH
+    w = shutil.which(clean) or shutil.which(f"{clean}.exe")
+    if w:
+        return w
+
+    # 3. Check Start Menu shortcuts (.lnk)
+    folders = [
+        os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
+        os.path.expandvars(r'%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs')
+    ]
+    norm_query = clean.replace("-", " ").replace("+", "").replace(" ", "")
+    candidate_lnk = None
+    for base in folders:
+        for root, dirs, files in os.walk(base):
+            for f in files:
+                if f.lower().endswith(".lnk"):
+                    low_f = f.lower()
+                    if any(skip in low_f for skip in ["uninstall", "help", "readme", "documentation", "website", "manual"]):
+                        continue
+                    norm_f = os.path.splitext(low_f)[0].replace("-", " ").replace("+", "").replace(" ", "")
+                    if norm_query in norm_f or clean in low_f:
+                        candidate_lnk = os.path.join(root, f)
+                        break
+            if candidate_lnk:
+                break
+        if candidate_lnk:
+            break
+
+    if candidate_lnk:
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch('WScript.Shell')
+            sc = shell.CreateShortcut(candidate_lnk)
+            if sc.TargetPath and os.path.exists(sc.TargetPath):
+                return sc.TargetPath
+        except Exception:
+            pass
+        return candidate_lnk
+
+    if "." not in clean and "/" not in clean and "\\" not in clean and not clean.endswith(":") and not clean.startswith("shell:"):
+        return f"{clean}.exe"
+    return clean
+
+
+_LAST_LAUNCHED_APPS = {}
+
+
+def _get_app_search_terms(app_name: str) -> list:
+    kw = app_name.lower().replace(".exe", "").strip()
+    kw_map = {
+        "calc": "calculator",
+        "mspaint": "paint",
+        "wt": "terminal",
+        "taskmgr": "task manager",
+        "winword": "word",
+        "powerpnt": "powerpoint",
+        "code": "visual studio code",
+        "vscode": "visual studio code",
+    }
+    terms = [kw]
+    if kw in kw_map:
+        terms.append(kw_map[kw])
+    return terms
+
+
+def _find_and_bring_to_front(app_name: str) -> bool:
+    """Check if a window matching app_name is already running and bring it to front."""
+    search_terms = _get_app_search_terms(app_name)
+    clean = search_terms[0]
+    try:
+        import win32service, win32gui, win32con, win32process, ctypes, psutil
+        try:
+            hwinsta = win32service.OpenWindowStation("WinSta0", False, 0x10000000)
+            hwinsta.SetProcessWindowStation()
+            hdesk = win32service.OpenDesktop("Default", 0, False, 0x10000000)
+            hdesk.SetThreadDesktop()
+        except Exception:
+            pass
+
+        matching_pids = set()
+        for p in psutil.process_iter(["pid", "name"]):
+            try:
+                p_name = p.info["name"].lower()
+                if any(t in p_name for t in search_terms):
+                    matching_pids.add(p.info["pid"])
+            except Exception:
+                pass
+
+        target_hwnd = None
+        def cb(hwnd, _):
+            nonlocal target_hwnd
+            if target_hwnd or not win32gui.IsWindowVisible(hwnd):
+                return
+            t = win32gui.GetWindowText(hwnd).strip()
+            c = win32gui.GetClassName(hwnd).strip()
+            if not t:
+                return
+            t_low = t.lower()
+            c_low = c.lower()
+            if clean not in ("cmd", "terminal", "powershell") and any(x in t_low for x in ("powershell", "command prompt", "cmd.exe")):
+                return
+            if clean not in ("code", "vscode", "antigravity") and "antigravity" in t_low:
+                return
+
+            tid, pid = win32process.GetWindowThreadProcessId(hwnd)
+            if pid in matching_pids or any(term in t_low or term in c_low for term in search_terms):
+                target_hwnd = hwnd
+
+        win32gui.EnumWindows(cb, None)
+        if target_hwnd:
+            user32 = ctypes.windll.user32
+            VK_MENU = 0x12
+            KEYEVENTF_KEYUP = 0x0002
+            user32.keybd_event(VK_MENU, 0, 0, 0)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            if win32gui.IsIconic(target_hwnd):
+                win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+            else:
+                win32gui.ShowWindow(target_hwnd, win32con.SW_SHOW)
+            user32.BringWindowToTop(target_hwnd)
+            win32gui.SetForegroundWindow(target_hwnd)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _bring_to_front(app_name: str):
+    import time
+    for _ in range(12):
+        time.sleep(0.2)
+        if _find_and_bring_to_front(app_name):
+            return
+
+
 @tool("desktop.launch_app", "Open an application by executable or name on Windows.",
-      {"app": {"type": "string", "description": "e.g. notepad, chrome, Code"}})
+      {"app": {"type": "string", "description": "e.g. notepad, spotify, discord, chrome, Code"}})
 def launch_app(app, ctx=None):
-    os.startfile(app) if hasattr(os, "startfile") else subprocess.Popen([app])
+    import time
+    clean = str(app).lower().strip()
+    now = time.time()
+    last = _LAST_LAUNCHED_APPS.get(clean, 0)
+    if (now - last) < 3.0:
+        _find_and_bring_to_front(clean)
+        return f"{app} is already opening / in foreground"
+
+    _LAST_LAUNCHED_APPS[clean] = now
+
+    # If already open, bring existing window to front without spawning duplicate processes!
+    if _find_and_bring_to_front(clean):
+        return f"brought existing {app} window to front"
+
+    target = _resolve_app_target(clean)
+    launched = False
+
+    # 1. AUMID Store App
+    if "!" in target and not target.endswith(".exe"):
+        launched = _launch_aumid(target)
+
+    # 2. Protocol or command
+    if not launched:
+        try:
+            import win32process
+            si = win32process.STARTUPINFO()
+            si.lpDesktop = r"WinSta0\Default"
+
+            if target.endswith(":") or target.startswith("http://") or target.startswith("https://") or (" " in target and not os.path.exists(target)):
+                cmd = f'cmd.exe /c start "" {target}'
+                win32process.CreateProcess(None, cmd, None, None, False, 0, None, None, si)
+                launched = True
+            elif os.path.exists(target) and target.lower().endswith(".lnk"):
+                cmd = f'cmd.exe /c start "" "{target}"'
+                win32process.CreateProcess(None, cmd, None, None, False, 0, None, None, si)
+                launched = True
+            else:
+                workdir = os.path.dirname(target) if os.path.isabs(target) and os.path.isdir(os.path.dirname(target)) else None
+                try:
+                    win32process.CreateProcess(target if os.path.exists(target) else None, f'"{target}"', None, None, False, 0, None, workdir, si)
+                    launched = True
+                except Exception:
+                    cmd = f'cmd.exe /c start "" "{target}"'
+                    win32process.CreateProcess(None, cmd, None, None, False, 0, None, workdir, si)
+                    launched = True
+        except Exception:
+            pass
+
+    # 3. Fallbacks
+    if not launched:
+        try:
+            subprocess.Popen(f'cmd.exe /c start "" "{target}"', shell=True)
+            launched = True
+        except Exception:
+            try:
+                if hasattr(os, "startfile"):
+                    os.startfile(target)
+                    launched = True
+            except Exception as e:
+                return f"failed to launch {app}: {e}"
+
+    import threading
+    threading.Thread(target=_bring_to_front, args=(clean,), daemon=True).start()
     return f"launched {app}"
 
 
@@ -104,12 +431,29 @@ def run_command(command, ctx=None):
 # ---------------- filesystem ----------------
 @tool("fs.list", "List files in a directory.", {"path": {"type": "string"}})
 def fs_list(path, ctx=None):
-    return "\n".join(sorted(os.listdir(path))[:200])
+    p = os.path.expanduser(path)
+    if not os.path.exists(p):
+        return f"path not found: {path}"
+    if not os.path.isdir(p):
+        return f"not a directory: {path}"
+    try:
+        return "\n".join(sorted(os.listdir(p))[:200])
+    except Exception as e:
+        return f"failed to list {path}: {e}"
 
 
 @tool("fs.read", "Read a UTF-8 text file.", {"path": {"type": "string"}})
 def fs_read(path, ctx=None):
-    return open(path, encoding="utf-8", errors="ignore").read()[:8000]
+    p = os.path.expanduser(path)
+    if not os.path.exists(p):
+        return f"file not found: {path}"
+    if os.path.isdir(p):
+        return f"path is a directory: {path}"
+    try:
+        with open(p, encoding="utf-8", errors="ignore") as f:
+            return f.read()[:8000]
+    except Exception as e:
+        return f"failed to read {path}: {e}"
 
 
 @tool("fs.write", "Write a UTF-8 text file.", {"path": {"type": "string"}, "content": {"type": "string"}})

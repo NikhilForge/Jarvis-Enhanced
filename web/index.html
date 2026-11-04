@@ -21,7 +21,7 @@
   .bar>i{display:block;height:100%;background:var(--cy)}
   .row{display:flex;justify-content:space-between;font-size:12px}
   .mono{font-family:"JetBrains Mono";font-size:11px;color:var(--mut)}
-  #orb{display:flex;justify-content:center}
+  #orb{display:flex;justify-content:center;min-height:200px;align-items:center}
   #log{height:360px;overflow:auto;font-family:"JetBrains Mono";font-size:11px;line-height:1.7}
   #log b{color:#4de3ffaa;font-weight:400}
   .bubble{border:1px solid var(--bd);border-radius:8px;padding:10px;margin-top:10px;background:#0b131a80}
@@ -29,7 +29,6 @@
   button{font-family:"JetBrains Mono";font-size:11px;text-transform:uppercase;letter-spacing:.15em;
          border:1px solid var(--bd);background:#14212c;color:#dceaf2;padding:8px 14px;border-radius:8px;cursor:pointer}
   #confirm{display:none;border-color:#ff5a6e;background:#ff5a6e18;margin-top:12px}
-  #log b{font-weight:400}
   b.ch-wake{color:#4de3ff}b.ch-stt{color:#8fd6ff}b.ch-llm{color:#ffbf43}b.ch-tool{color:#ff9f6e}
   b.ch-tts{color:#4dffc3}b.ch-mem{color:#c39bff}b.ch-skill{color:#7dffa8}b.ch-proactive{color:#ffd479}
   b.ch-rag{color:#9fd0ff}b.ch-learn{color:#ff8fd0}b.ch-spk,b.ch-voice{color:#4de3ff}b.ch-sys{color:#8fa7b6}
@@ -42,7 +41,15 @@
 <header>
   <div><div class="mono">local-first · Gemini cloud reasoning</div><h1>JARVIS-6 Orchestration Console</h1>
   <div class="sub">Local voice stack · faster-whisper STT → Gemini tool brain → Kokoro TTS</div></div>
-  <div class="mono" id="conn">ws: connecting…</div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="mono" style="color:var(--cy)">MIC:</span>
+      <select id="micSelect" style="background:#0b131a;border:1px solid var(--bd);color:#dceaf2;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:6px;outline:none;cursor:pointer;max-width:240px;">
+        <option value="">Detecting mics...</option>
+      </select>
+    </div>
+    <div class="mono" id="conn">ws: connecting…</div>
+  </div>
 </header>
 <div class="grid">
   <section class="panel">
@@ -54,6 +61,10 @@
     <div style="display:flex;justify-content:center;gap:8px;align-items:center;margin:8px 0"><button id="wakeBtn">WAKE JARVIS</button><span class="mono">or double-clap</span></div><div class="state" id="state">idle</div>
     <div class="bubble"><div class="mono">operator</div><div id="user">—</div></div>
     <div class="bubble"><div class="mono" style="color:var(--cy)">jarvis</div><div id="assistant">—</div></div>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <input id="promptInput" type="text" placeholder="Type a message or command..." style="flex:1;background:#0b131a;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;color:#dceaf2;font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
+      <button id="sendBtn" style="padding:9px 16px;background:#1e3a4a;color:var(--cy);border-color:var(--cy);">SEND</button>
+    </div>
     <div class="panel" id="confirm">
       <h2 style="color:#ff5a6e">human-in-the-loop</h2>
       <div class="mono" id="pending"></div>
@@ -85,9 +96,8 @@
     </div>
   </section>
 </div>
-<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.169.0/build/three.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"/static/three.module.js"}}</script>
 <script type="module">
-import * as THREE from 'three';
 const budget=[["OS + WebGL HUD",0.86,1.0,"Windows 11 / Three.js"],
 ["Speech-to-Text",1.31,1.5,"faster-whisper small int8_float16"],
 ["Gemini brain",0.0,0.05,"Cloud API · local VRAM free"],
@@ -96,35 +106,51 @@ document.getElementById('vram').innerHTML=budget.map(([n,u,b,m])=>
  `<div style="margin-bottom:12px"><div class="row"><span>${n}</span><span class="mono">${u}/${b} GB</span></div>
   <div class="bar"><i style="width:${u/b*100}%"></i></div><div class="mono">${m}</div></div>`).join('');
 
-const host=document.getElementById('orb');
-const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-const size=Math.min(420,window.innerWidth*0.4);renderer.setSize(size,size);host.appendChild(renderer.domElement);
-const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,0.1,100);cam.position.z=3.4;
-const uni={uTime:{value:0},uLevel:{value:0},uA:{value:new THREE.Color('#0d3b4a')},uB:{value:new THREE.Color('#28c2d6')}};
-const mat=new THREE.ShaderMaterial({transparent:true,uniforms:uni,vertexShader:`
-uniform float uTime,uLevel;varying float vN;varying vec3 vNW;
-float h(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
-float n3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
- return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
-            mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z);}
-void main(){float a=0.16+uLevel*0.8;
- vN=n3(normal*3.0+uTime*0.5)+n3(normal*7.0-uTime*1.1)*0.4-0.7;
- vNW=normalize(normalMatrix*normal);
- gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*vN*a,1.0);}`,
-fragmentShader:`uniform vec3 uA,uB;uniform float uLevel;varying float vN;varying vec3 vNW;
-void main(){float f=pow(1.0-abs(dot(normalize(vNW),vec3(0,0,1))),2.2);
- vec3 c=mix(uA,uB,clamp(vN*0.7+0.5,0.0,1.0))+f*(0.9+uLevel);
- gl_FragColor=vec4(c,0.92);}`});
-scene.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1,48),mat));
-const wire=new THREE.Mesh(new THREE.IcosahedronGeometry(1.35,3),
-  new THREE.MeshBasicMaterial({color:0x2ad4ff,wireframe:true,transparent:true,opacity:0.12}));scene.add(wire);
+let level=0.06,smooth=0,state='idle';
 const PAL={idle:['#0d3b4a','#28c2d6'],listening:['#0b4c5f','#4de3ff'],thinking:['#3a2d05','#ffbf43'],
  speaking:['#0a4a3b','#4dffc3'],confirm:['#4a0d17','#ff5a6e']};
-let level=0.06,smooth=0,state='idle';const clock=new THREE.Clock();
-(function tick(){const t=clock.getElapsedTime();smooth+=(level-smooth)*0.14;
- uni.uTime.value=t;uni.uLevel.value=smooth;const p=PAL[state]||PAL.idle;
- uni.uA.value.lerp(new THREE.Color(p[0]),0.05);uni.uB.value.lerp(new THREE.Color(p[1]),0.05);
- scene.rotation.y=t*0.25;wire.rotation.y=-t*0.12;renderer.render(scene,cam);requestAnimationFrame(tick);})();
+
+// Safe load of Three.js (works offline with /static/three.module.js and online fallback)
+try {
+  let THREE;
+  try {
+    THREE = await import('three');
+  } catch (e1) {
+    THREE = await import('https://unpkg.com/three@0.169.0/build/three.module.js');
+  }
+
+  const host=document.getElementById('orb');
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  const size=Math.min(420,window.innerWidth*0.4);renderer.setSize(size,size);host.appendChild(renderer.domElement);
+  const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,0.1,100);cam.position.z=3.4;
+  const uni={uTime:{value:0},uLevel:{value:0},uA:{value:new THREE.Color('#0d3b4a')},uB:{value:new THREE.Color('#28c2d6')}};
+  const mat=new THREE.ShaderMaterial({transparent:true,uniforms:uni,vertexShader:`
+  uniform float uTime,uLevel;varying float vN;varying vec3 vNW;
+  float h(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
+  float n3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+   return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
+              mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z);}
+  void main(){float a=0.16+uLevel*0.8;
+   vN=n3(normal*3.0+uTime*0.5)+n3(normal*7.0-uTime*1.1)*0.4-0.7;
+   vNW=normalize(normalMatrix*normal);
+   gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*vN*a,1.0);}`,
+  fragmentShader:`uniform vec3 uA,uB;uniform float uLevel;varying float vN;varying vec3 vNW;
+  void main(){float f=pow(1.0-abs(dot(normalize(vNW),vec3(0,0,1))),2.2);
+   vec3 c=mix(uA,uB,clamp(vN*0.7+0.5,0.0,1.0))+f*(0.9+uLevel);
+   gl_FragColor=vec4(c,0.92);}`});
+  scene.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1,48),mat));
+  const wire=new THREE.Mesh(new THREE.IcosahedronGeometry(1.35,3),
+    new THREE.MeshBasicMaterial({color:0x2ad4ff,wireframe:true,transparent:true,opacity:0.12}));scene.add(wire);
+  const clock=new THREE.Clock();
+  (function tick(){const t=clock.getElapsedTime();smooth+=(level-smooth)*0.14;
+   uni.uTime.value=t;uni.uLevel.value=smooth;const p=PAL[state]||PAL.idle;
+   uni.uA.value.lerp(new THREE.Color(p[0]),0.05);uni.uB.value.lerp(new THREE.Color(p[1]),0.05);
+   scene.rotation.y=t*0.25;wire.rotation.y=-t*0.12;renderer.render(scene,cam);requestAnimationFrame(tick);})();
+} catch (e) {
+  console.warn("WebGL visualizer fallback:", e);
+  const host=document.getElementById('orb');
+  if(host) host.innerHTML = '<div style="width:120px;height:120px;border-radius:50%;margin:20px auto;border:2px solid var(--cy);box-shadow:0 0 20px #4de3ff55;display:flex;align-items:center;justify-content:center;color:var(--cy);font-family:monospace;font-size:12px;">JARVIS</div>';
+}
 
 const log=document.getElementById('log');
 function line(ch,tx){const d=document.createElement('div');d.innerHTML=`<b class="ch-${ch}">[${ch}]</b> ${tx}`;
@@ -164,8 +190,62 @@ refreshAudit(); setInterval(refreshAudit,3000);
 document.getElementById('wakeBtn').onclick=async()=>{
   try{await fetch('/api/wake',{method:'POST'});}catch(e){}
 };
-const ws=new WebSocket(`ws://${location.host}/ws`);
-ws.onopen=()=>document.getElementById('conn').textContent='ws: live';
+const promptInput=document.getElementById('promptInput');
+const sendBtn=document.getElementById('sendBtn');
+async function sendPrompt(){
+  const val=(promptInput.value||'').trim();
+  if(!val) return;
+  promptInput.value='';
+  try{
+    await fetch('/api/prompt',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:val})
+    });
+  }catch(err){console.error('Prompt error:',err);}
+}
+if(sendBtn) sendBtn.onclick=sendPrompt;
+if(promptInput) promptInput.onkeydown=e=>{if(e.key==='Enter') sendPrompt();};
+
+async function loadMics() {
+  try {
+    const res = await fetch('/api/devices');
+    const data = await res.json();
+    const select = document.getElementById('micSelect');
+    if (!select || !data.devices) return;
+    const currentVal = select.value;
+    select.innerHTML = '';
+    data.devices.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.index;
+      opt.textContent = `[${d.index}] ${d.name}${d.is_default ? ' [Default]' : ''}`;
+      if (d.is_active) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+      select.value = currentVal;
+    }
+  } catch(e) {}
+}
+const micSelect = document.getElementById('micSelect');
+if (micSelect) {
+  micSelect.addEventListener('change', async (e) => {
+    const val = e.target.value;
+    if (val === '') return;
+    try {
+      await fetch('/api/device', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({device: parseInt(val, 10)})
+      });
+    } catch(err) { console.error('Failed to switch mic:', err); }
+  });
+}
+loadMics();
+
+const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws=new WebSocket(`${wsProtocol}//${location.host}/ws`);
+ws.onopen=()=>{ document.getElementById('conn').textContent='ws: live'; loadMics(); };
 ws.onclose=()=>document.getElementById('conn').textContent='ws: closed';
 ws.onmessage=e=>{const m=JSON.parse(e.data);
  if(m.channel==='level'){level=m.value;return;}
@@ -173,6 +253,12 @@ ws.onmessage=e=>{const m=JSON.parse(e.data);
    document.getElementById('confirm').style.display=m.text==='confirm'?'block':'none'; if(m.text==='confirm') startCountdown(); else clearInterval(countdownTimer); refreshAudit(); return;}
  if(m.channel==='user'){document.getElementById('user').textContent=m.text;}
  if(m.channel==='tts'){document.getElementById('assistant').textContent=m.text;}
+ if(m.channel==='open_url' || (m.channel==='browser' && m.url)){
+   const targetUrl = m.url || m.text;
+   if(targetUrl && targetUrl.startsWith('http')){
+     line('browser', `Opened: <a href="${targetUrl}" target="_blank" style="color:var(--cy);font-weight:bold;text-decoration:underline;">${targetUrl}</a>`);
+   }
+ }
  if(m.channel==='browser'){line('browser',m.text);}
  if(m.channel==='vision'){line('vision',m.text);}
  if(m.channel==='skill'){document.getElementById('v-skill').textContent=m.text;}
