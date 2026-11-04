@@ -1,314 +1,399 @@
-# JARVIS
+# JARVIS Enhanced
 
-> **A fully local, always-on voice AI assistant for Windows — powered by Gemini, Whisper, Kokoro TTS and Silero VAD.**
+**A powerful, always-on voice AI assistant for Windows — powered by Google Gemini, Whisper, Kokoro TTS, and Silero VAD.**
 
-JARVIS runs entirely on your laptop. Wake word detection, speech recognition, text-to-speech and speaker verification never leave your machine. Only the reasoning request (plain text) is sent to the Gemini API.
+JARVIS Enhanced is a locally running Windows voice assistant designed to bring a hands-free AI experience to your desktop. It combines voice recognition, intelligent conversations, desktop automation, browser control, persistent memory, and a real-time 3D HUD.
+
+Most of the audio pipeline runs locally on your machine. Wake-word detection, speech recognition, text-to-speech, and speaker verification remain on-device. Text-based reasoning requests are sent to the configured Gemini API.
+
+> This repository contains enhancements and modifications to the original JARVIS project.
 
 ---
 
 ## ✨ Features
 
-| Category | Details |
+| Category | Features |
 |---|---|
-| 🎙️ **Wake Word** | "Hey Jarvis" via openWakeWord (CPU ONNX), double-clap, or manual button |
-| 🗣️ **Speech-to-Text** | faster-whisper (`base.en`) with Silero VAD endpointing — no cloud mic data |
-| 🧠 **LLM Brain** | Gemini Flash (configurable model) with tool-calling and streaming output |
-| 🔊 **Text-to-Speech** | Kokoro-82M ONNX (offline) or Windows SAPI — sentence-streamed for low latency |
-| 🛡️ **Speaker ID** | Resemblyzer voiceprint — owner-only tools refused for unrecognised voices |
-| 🌐 **Browser Control** | Playwright Chromium + desktop launch (Brave/Chrome/Edge) with YouTube automation |
-| 🖥️ **Desktop Automation** | Launch apps, type text, click, hotkeys, screenshot, screen vision via Gemini |
-| 📂 **File Access** | List, read, write and open local files (owner-gated) |
-| 🔍 **Web Search** | DuckDuckGo search, full Playwright page reading |
-| 🧩 **RAG Memory** | Local document indexing (all-MiniLM-L6-v2) with SQLite recall and ChromaDB archival |
-| 📅 **Proactive** | Scheduled daily routines and in-session timers |
-| 🏠 **Smart Home** | Home Assistant integration (optional) |
-| 📊 **Live HUD** | WebSocket-driven Three.js orb dashboard at `http://localhost:8765` |
-| 📈 **Metrics & Audit** | Latency logging (wake→STT, TTFT, TTS-first, RTF) and full audit trail |
-| 🎓 **Self-learning** | Live SFT/DPO pair collection for future fine-tuning |
+| 🎙️ **Wake Word Detection** | "Hey Jarvis" detection using openWakeWord, double-clap activation, and manual controls |
+| 🗣️ **Speech Recognition** | faster-whisper with Silero VAD for local speech-to-text |
+| 🧠 **AI Intelligence** | Google Gemini integration with configurable models, tool calling, and streaming responses |
+| 🔊 **Text-to-Speech** | Kokoro ONNX neural TTS and Windows SAPI voices |
+| 🛡️ **Speaker Verification** | Resemblyzer voiceprints and owner-only tool access |
+| 🌐 **Browser Automation** | Playwright browser control, desktop browser launching, and YouTube automation |
+| 🖥️ **Desktop Automation** | Launch applications, type text, click, execute hotkeys, capture screenshots, and analyse the screen |
+| 📂 **File Management** | Local file listing, reading, writing, and opening with access restrictions |
+| 🔍 **Web Search** | DuckDuckGo search and browser-based webpage reading |
+| 🧩 **Persistent Memory** | Local document RAG, SQLite recall, and ChromaDB archival |
+| 📅 **Proactive Assistant** | Scheduled routines, reminders, and in-session timers |
+| 🏠 **Smart Home** | Optional Home Assistant integration |
+| 📊 **3D HUD** | Real-time Three.js interface with WebSocket-driven updates |
+| 📈 **Monitoring & Auditing** | Latency metrics, interaction logs, and audit exports |
+| 🎓 **Self-Learning** | Collects SFT/DPO training pairs for future fine-tuning |
 
 ---
 
 ## 🏗️ Architecture
 
-```
-                  ┌─────────────────────────────────────────────┐
-                  │               JARVIS Pipeline               │
-                  │                                             │
-  Microphone ──→  │  WakeWord (CPU) → STT (Whisper GPU/CPU)    │
-                  │       ↓                                     │
-                  │  Orchestrator → Skills (fast-path, 15ms)   │
-                  │       ↓                 ↓ (no match)        │
-                  │  LLM (Gemini API) ←─────┘                  │
-                  │       ↓                                     │
-                  │  Tool Execution (browser, desktop, fs…)     │
-                  │       ↓                                     │
-  Speakers ──←   │  TTS (Kokoro ONNX, sentence-streamed)       │
-                  └──────────────┬──────────────────────────────┘
-                                 │ WebSocket
-                  ┌──────────────▼──────────────────────────────┐
-                  │  HUD  http://localhost:8765  (Three.js orb) │
-                  └─────────────────────────────────────────────┘
+```text
+                 ┌──────────────────────────────────────┐
+                 │             JARVIS                   │
+                 │                                      │
+ Microphone ───► │ Wake Word Detection                  │
+                 │          │                           │
+                 │          ▼                           │
+                 │ Speech-to-Text (Whisper)             │
+                 │          │                           │
+                 │          ▼                           │
+                 │ Orchestrator                         │
+                 │          │                           │
+                 │     ┌────┴─────┐                     │
+                 │     ▼          ▼                     │
+                 │  Fast-path   Gemini API              │
+                 │  Skills       │                      │
+                 │     │         ▼                      │
+                 │     │     Tool Execution             │
+                 │     │  (Browser, Desktop, Files)     │
+                 │     └────┬────┘                      │
+                 │          ▼                           │
+ Speakers ◄───── │ Text-to-Speech                       │
+                 │ (Kokoro / Windows SAPI)              │
+                 └──────────┬───────────────────────────┘
+                            │
+                         WebSocket
+                            │
+                 ┌──────────▼───────────────────────────┐
+                 │       3D HUD Dashboard                │
+                 │       http://localhost:8765           │
+                 └──────────────────────────────────────┘
 ```
 
-**Key design decisions:**
-- All audio (mic → Whisper → Kokoro) stays local — Gemini never receives audio.
-- Silero VAD (CPU ONNX) gates every frame; energy threshold set high enough to ignore Bluetooth mic hiss.
-- Deterministic fast-path skills answer trivial commands in ~15 ms without touching the LLM.
-- Tool calls are one-at-a-time; the LLM waits for each result before continuing.
+### Key Design Decisions
+
+- **Local audio processing:** Microphone audio is processed locally through Whisper and the selected TTS engine.
+- **Cloud-based reasoning:** Text-based conversation requests are sent to the Gemini API.
+- **Fast-path execution:** Simple commands can be handled by deterministic skills without an LLM request.
+- **Tool-based automation:** The assistant can invoke registered tools to interact with supported desktop applications and services.
+- **Speaker verification:** Privileged operations are protected by voiceprint verification.
+- **Real-time HUD:** The browser-based dashboard receives pipeline events through WebSockets.
 
 ---
 
 ## 📋 Requirements
 
-- **OS:** Windows 11 (Windows 10 may work)
-- **Python:** 3.12 or 3.13
-- **GPU:** NVIDIA GPU recommended (Whisper INT8 on CUDA); CPU-only works but slower
-- **RAM:** 8 GB minimum; 16 GB recommended
-- **Microphone:** Any input device (Bluetooth headset supported with tuned gain)
-- **API Key:** [Google Gemini API key](https://aistudio.google.com/app/apikey) (free tier works)
+| Requirement | Recommended |
+|---|---|
+| Operating System | Windows 11 (Windows 10 may work) |
+| Python | 3.12 or 3.13 |
+| GPU | NVIDIA GPU recommended; CPU mode supported |
+| RAM | 8 GB minimum, 16 GB recommended |
+| Microphone | Any supported input device |
+| API Key | Google Gemini API key |
+
+Get your Gemini API key: [Google AI Studio](https://aistudio.google.com/app/apikey)
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Installation & Quick Start
 
-### 1. Clone
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/JARVIS.git
-cd JARVIS
+git clone https://github.com/NikhilForge/Jarvis-Enhanced.git
+cd Jarvis-Enhanced
 ```
 
-### 2. Add your Gemini API key
+### 2. Create a virtual environment
+
+```powershell
+python -m venv .venv
+```
+
+Activate it:
+
+```powershell
+.venv\Scripts\activate
+```
+
+### 3. Install dependencies
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 4. Configure your API key
 
 Create a `.env` file in the project root:
 
+```env
+GEMINI_API_KEY=your_gemini_api_key
 ```
-GEMINI_API_KEY=your_key_here
-```
 
-### 3. Run
+Keep your `.env` file private. Never commit API keys or authentication tokens.
 
-**Double-click `run.bat`** — it will:
-1. Create a `.venv` virtual environment
-2. Install all dependencies
-3. Download the Hey Jarvis wake-word ONNX model
-4. Download Kokoro-82M TTS model files
-5. Enrol your voiceprint (20 seconds of speech)
-6. Open the HUD at `http://localhost:8765`
-7. Start JARVIS
+### 5. Launch JARVIS
 
-Or manually:
+**Recommended:**
 
-```bat
+Double-click:
+
+```text
 run.bat
 ```
 
+The launcher is designed to prepare the environment, install dependencies, download required model files, enrol your voiceprint, start the HUD, and launch JARVIS.
+
+Alternatively, run manually:
+
 ```powershell
-# PowerShell alternative
 $env:PYTHONUTF8="1"
-Set-Location "D:\JARVIS\Jarvis"
-.\.venv\Scripts\python.exe main.py
+python main.py
 ```
 
 ---
 
 ## 🗂️ Project Structure
 
-```
-JARVIS/
-├── main.py                  # Entrypoint (full pipeline or --hud demo mode)
-├── server.py                # FastAPI + WebSocket HUD server (port 8765)
-├── config.yaml              # All runtime settings
-├── run.bat                  # One-click Windows launcher
-├── requirements.txt         # Python dependencies
+```text
+JARVIS-ENHANCED/
+│
+├── main.py
+├── server.py
+├── config.yaml
+├── requirements.txt
+├── run.bat
+├── run_hud_only.bat
 │
 ├── core/
-│   ├── audio_in.py          # Microphone input, Silero VAD, AGC, pre-roll buffer
-│   ├── wakeword.py          # openWakeWord CNN + double-clap detection
-│   ├── stt.py               # faster-whisper speech-to-text
-│   ├── llm.py               # Gemini API client, streaming, tool-call parsing
-│   ├── tts.py               # Kokoro ONNX / SAPI TTS, sentence streaming
-│   ├── orchestrator.py      # Main loop: wake → STT → LLM → TTS
-│   ├── skills.py            # Deterministic fast-path (time, timers, YouTube, apps)
-│   ├── memory.py            # Core memory, recall (SQLite), archival (ChromaDB)
-│   ├── speaker_id.py        # Resemblyzer voiceprint enrollment & verification
-│   ├── rag.py               # Local document RAG (sentence-transformers)
-│   ├── proactive.py         # Scheduled routines and timers
-│   ├── learning.py          # Live SFT/DPO pair collection
-│   ├── metrics.py           # Latency and VRAM telemetry
-│   ├── audit.py             # Full interaction audit trail (JSONL + CSV export)
-│   ├── vad.py               # Silero VAD wrapper (falls back to WebRTC VAD)
-│   └── bus.py               # In-process pub/sub event bus
+│   ├── audio_in.py
+│   ├── wakeword.py
+│   ├── stt.py
+│   ├── llm.py
+│   ├── tts.py
+│   ├── orchestrator.py
+│   ├── skills.py
+│   ├── memory.py
+│   ├── speaker_id.py
+│   ├── rag.py
+│   ├── proactive.py
+│   ├── learning.py
+│   ├── metrics.py
+│   ├── audit.py
+│   ├── vad.py
+│   └── bus.py
 │
 ├── tools/
-│   ├── registry.py          # Tool decorator, voice-gate, app launcher with dedup
-│   ├── browser.py           # Playwright browser + desktop URL launch (deduped)
-│   ├── vision.py            # Screenshot capture + Gemini vision analysis
-│   ├── system.py            # Power, processes, files, shell (owner-only)
-│   ├── media.py             # System audio / media player control
-│   ├── accessibility.py     # Narrator, magnifier, contrast, on-screen keyboard
-│   └── assistant.py         # Memory tools (core_append, recall_search, etc.)
+│   ├── registry.py
+│   ├── browser.py
+│   ├── vision.py
+│   ├── system.py
+│   ├── media.py
+│   ├── accessibility.py
+│   └── assistant.py
 │
 ├── web/
-│   ├── index.html           # Three.js orb HUD + WebSocket pipeline trace
-│   └── three.module.js      # Bundled Three.js (local, no CDN)
+│   ├── index.html
+│   └── three.module.js
 │
-├── models/                  # Kokoro ONNX model files (auto-downloaded by run.bat)
+├── models/
 ├── scripts/
-│   ├── enroll_voice.py      # Voice enrollment script
-│   └── verify_voice.py      # Voiceprint verification test
-├── training/                # Optional fine-tuning scripts (Unsloth, DPO, SFT)
-└── eval/                    # Latency, WER and tool-calling evaluation scripts
+│   ├── enroll_voice.py
+│   └── verify_voice.py
+│
+├── training/
+└── eval/
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-All settings live in [`config.yaml`](config.yaml). Key sections:
+Runtime settings are managed through `config.yaml`.
+
+Example configuration:
 
 ```yaml
 audio:
-  input_device: Airdopes        # Substring match — set to your mic name or "auto"
-  input_gain: 3.0               # Software gain (boost quiet Bluetooth mics)
-  silence_ms_to_endpoint: 850   # ms of silence to end recording
-  vad_threshold: 0.20           # Silero VAD confidence threshold
+  input_device: auto
+  input_gain: 3.0
+  silence_ms_to_endpoint: 850
+  vad_threshold: 0.20
 
 llm:
   backend: gemini
   model: gemini-flash-lite-latest
-  api_key_env: GEMINI_API_KEY   # reads from .env
+  api_key_env: GEMINI_API_KEY
 
 stt:
-  model: base.en                # Whisper model: tiny.en, base.en, small.en…
-  device: cpu                   # or "cuda"
+  model: base.en
+  device: cpu
 
 tts:
-  engine: sapi                  # "sapi" (Windows voices) or "kokoro" (offline ONNX)
+  engine: sapi
   voice: david
 
 wakeword:
   model: hey_jarvis
   threshold: 0.28
-  clap_to_wake: true            # double-clap alternative to voice wake
+  clap_to_wake: true
 
 tools:
   browser:
     enabled: true
-    headless: false             # set true to hide the Playwright window
+    headless: false
+
   home_assistant:
-    enabled: false              # set true + paste HA token to control smart home
+    enabled: false
 ```
+
+**Note:** The values above are example defaults. Adjust them according to your hardware, installed models, and available integrations.
 
 ---
 
-## 🎤 Voice Commands
+## 🎤 Example Voice Commands
 
-JARVIS understands natural English, Hindi, and Hinglish. Sample commands:
+JARVIS supports natural-language commands. Examples include:
 
-| Command | What happens |
+| Voice Command | Action |
 |---|---|
-| `"Hey Jarvis, what time is it?"` | Fast-path skill, answered in ~15 ms |
-| `"Open YouTube and search for lofi hip hop"` | Opens search URL in browser |
-| `"Open Notepad"` | Launches Notepad (or focuses existing window) |
-| `"Search for Python tutorial on YouTube"` | YouTube search, deduped single tab |
-| `"What's on my screen?"` | Screenshot + Gemini vision analysis |
-| `"Set a timer for 10 minutes"` | Proactive timer scheduled |
-| `"Shut down the computer"` | Owner-verified, confirmed before executing |
-| `"Play next song"` | Media key forwarded to active player |
-| `"Turn on high contrast"` | Windows Accessibility API |
-| `"Remember that I prefer dark mode"` | Stored in persistent core memory |
+| "Hey Jarvis, what time is it?" | Answers using a fast-path skill |
+| "Open YouTube and search for lofi hip hop" | Opens a YouTube search |
+| "Open Notepad" | Launches or focuses Notepad |
+| "Search for Python tutorials" | Performs a browser search |
+| "What's on my screen?" | Captures and analyses the screen |
+| "Set a timer for 10 minutes" | Schedules a timer |
+| "Shut down the computer" | Requests confirmation before shutdown |
+| "Play next song" | Sends a media-control command |
+| "Turn on high contrast" | Activates Windows accessibility settings |
+| "Remember that I prefer dark mode" | Stores information in persistent memory |
 
 ---
 
 ## 🛡️ Privacy & Security
 
-- **All audio stays local.** Whisper and Kokoro run on-device; no audio is ever sent to the cloud.
-- **Only text reasoning goes to Gemini.** The API receives the conversation turn text — not your voice, not screenshots (unless you explicitly ask `"what's on my screen?"`).
-- **Owner-only tool gate.** Commands that touch the filesystem, run shell commands, or control power require the enrolled voiceprint to clear the `privileged_threshold`. Strangers can ask the weather; they cannot shut down your PC.
-- **Local RAG.** Document embeddings are stored on-disk in ChromaDB — not sent anywhere.
-- **Audit trail.** Every interaction is logged to `data/audit.jsonl`. Export as CSV from the HUD.
+- **Local audio processing:** Audio recognition and speech synthesis run locally.
+- **API privacy:** Text-based reasoning requests are sent to the configured Gemini API.
+- **Speaker verification:** Privileged tools use voiceprint verification.
+- **Local memory:** RAG and memory databases are stored locally.
+- **Audit logging:** Interactions can be recorded for debugging and auditing.
+- **Credential protection:** API keys and tokens should be stored in `.env` and excluded from Git.
+
+**Important:** Voice verification is an additional security layer, not a guarantee of protection against spoofing or unauthorised access. Review tool permissions before exposing the assistant to other users.
 
 ---
 
 ## 🧪 HUD Demo Mode
 
-Run the HUD with synthetic events (no models or API key needed):
+Run the HUD independently using synthetic events:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --hud
+python main.py --hud
 ```
 
-Then open `http://localhost:8765` to see the orb and pipeline trace.
+Open your browser:
+
+```text
+http://localhost:8765
+```
+
+This allows you to explore the 3D interface without starting the complete voice pipeline.
 
 ---
 
 ## 🔧 Troubleshooting
 
-**JARVIS can't hear me / orb moves but doesn't transcribe**
-- Check `input_device` in `config.yaml` matches a substring of your mic name (shown in `[sys] audio input open on [...]` log line)
-- Increase `input_gain` if using a Bluetooth headset (3.0–4.0 recommended)
-- Lower `vad_threshold` to `0.15` if speech is not being detected
+### JARVIS cannot hear my voice
 
-**Multiple browser tabs / app windows opening**
-- Already fixed: `_launch_desktop_url` has 3.5-second URL deduplication; `desktop.launch_app` has 3-second per-app cooldown and focuses existing windows
+- Check `input_device` in `config.yaml`.
+- Verify that Windows has microphone permissions enabled.
+- Increase `input_gain` if the microphone input is too quiet.
+- Try lowering `vad_threshold` if speech is not detected.
 
-**Port 8765 already in use**
-- `run.bat` automatically kills the stale process; or run: `netstat -ano | findstr :8765` → `taskkill /f /pid <PID>`
+### Multiple browser tabs or application windows open
 
-**Kokoro TTS model missing**
-- Run `run.bat` once; it auto-downloads from GitHub releases
-- Or manually: download `kokoro-v1.0.onnx` and `voices-v1.0.bin` into `models/`
+- Check the browser and desktop launch logic.
+- Verify that application cooldown and URL deduplication are functioning correctly.
 
-**`GEMINI_API_KEY` not found**
-- Create a `.env` file in the project root: `GEMINI_API_KEY=your_key_here`
-- Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey)
+### Port 8765 is already in use
+
+```powershell
+netstat -ano | findstr :8765
+```
+
+Stop the process using the PID shown:
+
+```powershell
+taskkill /f /pid <PID>
+```
+
+### Kokoro TTS model missing
+
+Run `run.bat` to allow the launcher to download the required model files, or follow the model setup instructions in the project.
+
+### Gemini API key not found
+
+- Check that `.env` exists in the project root.
+- Confirm that the variable is named `GEMINI_API_KEY`.
+- Restart JARVIS after updating the environment file.
 
 ---
 
-## 📦 Dependencies
+## 📦 Core Dependencies
 
 | Package | Purpose |
 |---|---|
-| `faster-whisper` | Local speech-to-text (INT8 quantised) |
-| `openwakeword` | "Hey Jarvis" wake-word detection |
-| `kokoro-onnx` | Local neural TTS (Kokoro-82M) |
-| `torch` + `torchaudio` | Silero VAD, speaker encoder |
-| `google-generativeai` / `httpx` | Gemini API reasoning |
+| `faster-whisper` | Local speech recognition |
+| `openwakeword` | Wake-word detection |
+| `kokoro-onnx` | Neural text-to-speech |
+| `torch` / `torchaudio` | Audio processing and speaker encoding |
+| `google-generativeai` / `httpx` | Gemini API integration |
 | `playwright` | Browser automation |
-| `fastapi` + `uvicorn` | HUD WebSocket server |
-| `pyautogui` + `psutil` | Desktop automation |
+| `fastapi` / `uvicorn` | HUD server |
+| `pyautogui` / `psutil` | Desktop automation |
 | `sentence-transformers` | Local RAG embeddings |
-| `resemblyzer` | Speaker voiceprint verification |
-| `pycaw` + `comtypes` | Windows audio / media control |
+| `resemblyzer` | Speaker verification |
+| `pycaw` / `comtypes` | Windows audio control |
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] Linux / macOS support (audio and desktop layers)
-- [ ] Local LLM fallback (Ollama / llama.cpp) when offline
-- [ ] Multi-room audio via Snapcast
-- [ ] Fine-tuned persona model via collected DPO pairs
-- [ ] GUI settings panel (mic selector, model picker)
+- [ ] Linux and macOS support
+- [ ] Local LLM fallback using Ollama or llama.cpp
+- [ ] Multi-room audio support
+- [ ] Fine-tuned assistant persona
+- [ ] GUI settings panel
+- [ ] Expanded voice-command capabilities
+- [ ] Further improvements to desktop automation and accessibility
 
 ---
 
-## 📄 License
+## 📄 License & Attribution
 
-MIT — see [LICENSE](LICENSE) for details.
+This project is based on the original JARVIS repository:
+
+[psycoks/Jarvis](https://github.com/psycoks/Jarvis)
+
+**Jarvis Enhanced** includes modifications and additional functionality.
+
+Please refer to the original repository's licensing terms and obtain the necessary permission before redistributing or relicensing its code. Do not assume that this project is MIT-licensed unless that permission is established.
 
 ---
 
 ## 🙏 Acknowledgements
 
-- [openWakeWord](https://github.com/dscripka/openWakeWord) — wake-word detection
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2 Whisper
-- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) — Kokoro TTS ONNX runtime
-- [Silero VAD](https://github.com/snakers4/silero-vad) — neural voice activity detection
-- [Resemblyzer](https://github.com/resemble-ai/Resemblyzer) — speaker verification
-- [Playwright](https://playwright.dev/) — browser automation
+Special thanks to the developers and maintainers of the open-source technologies that make this project possible:
+
+- [openWakeWord](https://github.com/dscripka/openWakeWord)
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx)
+- [Silero VAD](https://github.com/snakers4/silero-vad)
+- [Resemblyzer](https://github.com/resemble-ai/Resemblyzer)
+- [Playwright](https://playwright.dev/)
+- [Three.js](https://threejs.org/)
 
 ---
 
-*Built for personal use on a Ryzen 5 7235HS + RTX 3050 6GB laptop.*
+**Built and enhanced by Nikhil.**
+
+*An evolving desktop AI assistant, built to make everyday computer interaction more intelligent, natural, and hands-free.*
